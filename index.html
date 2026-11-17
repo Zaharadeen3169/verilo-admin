@@ -17,12 +17,15 @@ nav button.on{background:var(--navy);color:#fff}
 main{max-width:760px;margin:0 auto;padding:14px}
 .card{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:14px;margin-bottom:12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid .card{margin:0}.grid b{font-size:26px;display:block}
-.mut{color:var(--mut);font-size:13px}
-input,textarea,select{width:100%;padding:12px;border:1px solid var(--ln);border-radius:10px;font:inherit;background:var(--card);color:var(--tx);margin:6px 0}
+.mut{color:var(--mut);font-size:13px}label{font-size:13px;color:var(--mut);font-weight:600;display:block;margin-top:6px}
+input,textarea,select{width:100%;padding:12px;border:1px solid var(--ln);border-radius:10px;font:inherit;background:var(--card);color:var(--tx);margin:4px 0}
+.chk{display:flex;gap:8px;align-items:flex-start;font-weight:400}.chk input{width:auto;margin-top:3px}
 button.btn{background:var(--teal);color:var(--navy);font-weight:700;border:0;border-radius:10px;padding:11px 16px;font-size:15px;margin:4px 6px 0 0}
 button.alt{background:transparent;border:2px solid var(--teal);color:var(--tx)}button.red{background:var(--bad);color:#fff}
 .login{max-width:380px;margin:12vh auto;padding:16px}
 img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;background:#0002;margin:6px 0}
+.bub{padding:8px 12px;border-radius:12px;margin:5px 0;background:var(--bg);border:1px solid var(--ln);white-space:pre-wrap}
+.badge{font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;background:#e8edf2;color:#4a5d70}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:.2s;max-width:90%;z-index:9}
 #toast.show{opacity:1}#toast.bad{background:var(--bad)}
 #detail{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:14px;padding-top:calc(14px + env(safe-area-inset-top,0px));z-index:5}
@@ -34,7 +37,7 @@ img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;backgro
 <button class="btn" id="loginBtn" style="width:100%">Log in</button></section>
 <div id="app" hidden>
 <header><b>Verilo Admin</b><small id="who"></small><button id="out">Log out</button></header>
-<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button></nav>
+<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="plans">Plans &amp; fees</button></nav>
 <main id="view"></main></div>
 <div id="detail" hidden></div><div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -46,6 +49,7 @@ function toast(m,bad){const t=$('toast');t.textContent=m;t.className='show'+(bad
 async function guard(fn){try{await fn()}catch(e){toast(e.message||String(e),true)}}
 async function rpc(name,args){const{data,error}=await sb.rpc(name,args);if(error)throw error;return data}
 const when=d=>d?new Date(d).toLocaleString('en-GB'):'';
+const ngn=n=>n==null?'—':'₦'+Number(n).toLocaleString();
 
 async function enter(user){
   const{data:p,error}=await sb.from('profiles').select('role,full_name,status').eq('id',user.id).single();
@@ -59,14 +63,14 @@ $('loginBtn').onclick=()=>guard(async()=>{
 $('out').onclick=async()=>{await sb.auth.signOut();location.reload()};
 sb.auth.getSession().then(({data})=>{if(data.session)guard(()=>enter(data.session.user))});
 
-const L={dash,queue,reports,appeals};let cur='dash';
+const L={dash,queue,reports,appeals,disputes,plans};let cur='dash';
 function show(t){cur=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$('view').innerHTML='<p class="mut">Loading…</p>';guard(L[t])}
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(b)show(b.dataset.t)};
 
 async function dash(){
   const s=await rpc('admin_stats'),v=s.verification||{};
-  const c=[['Workers',s.workers],['Employers',s.employers],['Awaiting review',s.queue_pending],['Open reports',s.open_reports],['Open appeals',s.open_appeals],['Suspended',s.suspended],['Deletion requests',s.deletion_requests],['Sign-ups, 7 days',s.signups_last_7_days],['Hire requests',s.hire_requests_total],['Jobs completed',s.jobs_completed],['Verified',v.verified||0],['Unverified',v.unverified||0],['Under review',v.under_review||0],['Rejected',v.rejected||0]];
-  $('view').innerHTML='<div class="grid">'+c.map(x=>`<div class="card"><b>${esc(x[1]??0)}</b><span class="mut">${esc(x[0])}</span></div>`).join('')+'</div><p class="mut">Verification means documents were checked. It does not guarantee a person’s behaviour or safety.</p>';
+  const c=[['Workers',s.workers],['Employers',s.employers],['Awaiting review',s.queue_pending],['Open reports',s.open_reports],['Open appeals',s.open_appeals],['Open disputes',s.disputes_open],['Bookings',s.bookings_total],['Active bookings',s.bookings_active],['Completed bookings',s.bookings_completed],['Payments reported',s.payments_reported],['Suspended',s.suspended],['Deletion requests',s.deletion_requests],['Sign-ups, 7 days',s.signups_last_7_days],['Hire requests',s.hire_requests_total],['Verified',v.verified||0],['Unverified',v.unverified||0],['Under review',v.under_review||0],['Rejected',v.rejected||0]];
+  $('view').innerHTML='<div class="grid">'+c.map(x=>`<div class="card"><b>${esc(x[1]??0)}</b><span class="mut">${esc(x[0])}</span></div>`).join('')+'</div><p class="mut">Verification means documents were checked. It does not guarantee a person’s behaviour or safety. Payment never affects verification.</p>';
 }
 
 async function queue(){
@@ -74,9 +78,15 @@ async function queue(){
   $('view').innerHTML=(data.length?'':'<div class="card">No requests waiting. 🎉</div>')+data.map(r=>`<div class="card"><b>${esc(r.full_name)}</b><div class="mut">${esc(r.category||'No category')} · ${esc(r.state||'No state')} · ${esc(String(r.id_type).replace(/_/g,' '))}<br>Submitted ${esc(when(r.submitted_at))}</div><button class="btn" data-review="${esc(r.request_id)}">Review</button></div>`).join('');
 }
 $('view').onclick=e=>{
-  const r=e.target.closest('[data-review]');if(r)guard(()=>openReview(r.dataset.review));
-  const rp=e.target.closest('[data-report]');if(rp)guard(()=>saveReport(rp.dataset.report,rp.closest('.card')));
-  const ap=e.target.closest('[data-appeal]');if(ap)guard(()=>saveAppeal(ap.dataset.appeal,ap.dataset.o,ap.closest('.card')));
+  const g=(s)=>e.target.closest(s);let x;
+  if(x=g('[data-review]'))guard(()=>openReview(x.dataset.review));
+  if(x=g('[data-report]'))guard(()=>saveReport(x.dataset.report,x.closest('.card')));
+  if(x=g('[data-appeal]'))guard(()=>saveAppeal(x.dataset.appeal,x.dataset.o,x.closest('.card')));
+  if(x=g('[data-ev]'))guard(()=>viewEv(x.dataset.ev));
+  if(x=g('[data-dmsg]'))guard(()=>disputeMsg(x.dataset.dmsg,x.closest('.card')));
+  if(x=g('[data-dres]'))guard(()=>disputeSave(x.dataset.dres,x.closest('.card')));
+  if(x=g('[data-plan]'))guard(()=>savePlan(x.dataset.plan,x.closest('.card')));
+  if(x=g('[data-set]'))guard(()=>saveSetting(x.dataset.set,x.closest('.card')));
 };
 async function openReview(id){
   const{data:r,error}=await sb.from('verification_requests').select('*').eq('id',id).single();if(error)throw error;
@@ -86,8 +96,8 @@ async function openReview(id){
   const media=(u,path,l)=>/\.pdf$/i.test(path)?`<p><a href="${esc(u)}" target="_blank" rel="noopener">Open ${l} (PDF, link expires in 60 seconds)</a></p>`:`<p class="mut">${l}</p><img class="doc" src="${esc(u)}" alt="${l}">`;
   const d=$('detail');d.hidden=false;
   d.innerHTML=`<button class="btn alt" id="close">← Back</button><div class="card"><b>${esc(p&&p.full_name)}</b><div class="mut">${esc(p&&p.city)} ${esc(p&&p.state)} · ID type: ${esc(String(r.id_type).replace(/_/g,' '))}<br>Consent recorded ${esc(when(r.consent_at))}</div></div>
-  <div class="card">${media(a,r.id_doc_path,'ID document')}${media(b,r.selfie_path,'Selfie')}<p class="mut">Check the photo matches the selfie and the name on the profile. Do not copy or save ID numbers. Links expire in 60 seconds, so reload this page if an image disappears.</p></div>
-  <div class="card"><label class="mut">Reason (required for Reject and Ask for info; the worker will see it)</label><textarea id="note" rows="3"></textarea>
+  <div class="card">${media(a,r.id_doc_path,'ID document')}${media(b,r.selfie_path,'Selfie')}<p class="mut">Check the photo matches the selfie and the name on the profile. Do not copy or save ID numbers. Links expire in 60 seconds, so reload this page if an image disappears. Payment must never influence this decision.</p></div>
+  <div class="card"><label>Reason (required for Reject and Ask for info; the worker will see it)</label><textarea id="note" rows="3"></textarea>
   <button class="btn" data-d="approve">Approve</button><button class="btn red" data-d="reject">Reject</button><button class="btn alt" data-d="request_info">Ask for info</button></div>`;
   $('close').onclick=()=>{d.hidden=true;d.innerHTML=''};
   d.onclick=e=>{const x=e.target.closest('button[data-d]');if(!x)return;guard(async()=>{
@@ -98,7 +108,6 @@ async function openReview(id){
     toast('Saved');d.hidden=true;d.innerHTML='';show('queue');
   })};
 }
-
 async function names(ids){
   if(!ids.length)return{};
   const{data}=await sb.from('profiles').select('id,full_name,role,status').in('id',ids);
@@ -109,7 +118,7 @@ async function reports(){
   const n=await names([...new Set(data.map(r=>r.target_user_id))]);
   $('view').innerHTML=(data.length?'':'<div class="card">No open reports.</div>')+data.map(r=>{const t=n[r.target_user_id]||{};return `<div class="card"><b>${esc(String(r.reason).replace(/_/g,' '))}</b><div class="mut">About: ${esc(t.full_name||'Unknown')} (${esc(t.role||'')}, ${esc(t.status||'')}) · ${esc(when(r.created_at))}</div><p>${esc(r.details||'No details')}</p>
   <textarea rows="2" class="n" placeholder="Admin note"></textarea><select class="s"><option value="reviewing">Mark as reviewing</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option></select>
-  <label class="mut"><input type="checkbox" class="sus" style="width:auto"> Also suspend this account</label><br><button class="btn" data-report="${esc(r.id)}">Save</button></div>`}).join('');
+  <label class="chk"><input type="checkbox" class="sus"> Also suspend this account</label><button class="btn" data-report="${esc(r.id)}">Save</button></div>`}).join('');
 }
 async function saveReport(id,c){
   const sus=c.querySelector('.sus').checked;
@@ -117,7 +126,6 @@ async function saveReport(id,c){
   await rpc('admin_handle_report',{p_report_id:Number(id),p_status:c.querySelector('.s').value,p_note:c.querySelector('.n').value.trim()||null,p_suspend:sus});
   toast('Saved');show('reports');
 }
-
 async function appeals(){
   const{data,error}=await sb.from('appeals').select('*').eq('status','open').order('created_at');if(error)throw error;
   const n=await names([...new Set(data.map(a=>a.worker_id))]);
@@ -132,5 +140,70 @@ async function saveAppeal(id,o,c){
   const note=c.querySelector('.n').value.trim();if(!note)throw new Error('Write a decision note first.');
   await rpc('admin_resolve_appeal',{p_appeal_id:Number(id),p_outcome:o,p_note:note});
   toast('Saved');show('appeals');
+}
+
+/* ---------- DISPUTES ---------- */
+const PSL={reported_paid:'Reported as paid (not verified by Verilo)',receipt_confirmed:'Receipt confirmed by worker',disputed:'Payment disputed',refunded:'Refunded'};
+async function viewEv(p){const{data,error}=await sb.storage.from('payment-evidence').createSignedUrl(p,60);if(error)throw error;window.open(data.signedUrl,'_blank')}
+async function disputes(){
+  const{data,error}=await sb.from('booking_disputes').select('*').in('status',['open','under_review']).order('created_at');if(error)throw error;
+  if(!data.length){$('view').innerHTML='<div class="card">No open disputes.</div>';return}
+  const bids=[...new Set(data.map(d=>d.booking_id))];
+  const{data:bs}=await sb.from('bookings').select('*').in('id',bids);const bk=Object.fromEntries((bs||[]).map(b=>[b.id,b]));
+  const nm=await names([...new Set((bs||[]).flatMap(b=>[b.employer_id,b.worker_id]))]);
+  const[{data:ms},{data:ps}]=await Promise.all([sb.from('booking_dispute_messages').select('*').in('dispute_id',data.map(d=>d.id)).order('id'),sb.from('booking_payments').select('*').in('booking_id',bids).order('id')]);
+  $('view').innerHTML=data.map(d=>{const b=bk[d.booking_id]||{},E=(nm[b.employer_id]||{}).full_name||'Employer',Wk=(nm[b.worker_id]||{}).full_name||'Worker';
+    const who=id=>id===b.employer_id?E+' (employer)':id===b.worker_id?Wk+' (worker)':'Verilo admin';
+    return `<div class="card"><b>${esc(String(d.reason).replace(/_/g,' '))}</b> <span class="badge">${esc(d.status.replace('_',' '))}</span>
+    <div class="mut">Employer: ${esc(E)} · Worker: ${esc(Wk)}<br>Raised by ${esc(who(d.raised_by))} · ${esc(when(d.created_at))}</div><p>${esc(d.details||'No details')}</p>
+    <div class="mut">Booking: ${esc(String(b.status).replace('_',' '))} · Total ${ngn(b.total_price_ngn)} · Deposit ${ngn(b.deposit_ngn)} · ${esc(b.work_date||'')} · ${esc(b.location||'')}</div>
+    ${(ps||[]).filter(p=>p.booking_id===d.booking_id).map(p=>`<div class="mut">• ${esc(p.kind)} ${ngn(p.amount_ngn)} on ${esc(p.paid_on)} — ${esc(PSL[p.status]||p.status)}${p.evidence_path?` <button class="btn alt" data-ev="${esc(p.evidence_path)}">Receipt</button>`:''}</div>`).join('')}
+    <h4 style="margin:10px 0 2px">Explanations</h4>${(ms||[]).filter(m=>m.dispute_id===d.id).map(m=>`<div class="bub"><b>${esc(who(m.author_id))}</b><br>${esc(m.body)}${m.evidence_path?`<br><button class="btn alt" data-ev="${esc(m.evidence_path)}">Evidence</button>`:''}</div>`).join('')||'<p class="mut">No explanations yet.</p>'}
+    <textarea rows="3" class="n" placeholder="Message to both parties, or your decision note"></textarea>
+    <button class="btn alt" data-dmsg="${esc(d.id)}">Send message to both</button>
+    <label>Decision</label><select class="s"><option value="under_review">Mark as under review</option><option value="resolved">Resolve the dispute</option></select>
+    <label>Booking status after resolving</label><select class="bs"><option value="in_progress">In progress</option><option value="confirmed">Confirmed</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
+    <button class="btn" data-dres="${esc(d.id)}">Save decision</button>
+    <p class="mut">Admins decide the booking outcome only. Verilo does not hold or move funds, so any refund is arranged between the parties.</p></div>`}).join('');
+}
+async function disputeMsg(id,c){const t=c.querySelector('.n').value.trim();if(!t)throw new Error('Write a message first.');await rpc('add_dispute_message',{p_dispute:Number(id),p_body:t});toast('Sent');show('disputes')}
+async function disputeSave(id,c){
+  const st=c.querySelector('.s').value,note=c.querySelector('.n').value.trim();
+  if(st==='resolved'&&!note)throw new Error('Write a resolution note first.');
+  if(st==='resolved'&&!confirm('Resolve this dispute and set the booking status?'))return;
+  await rpc('admin_resolve_dispute',{p_dispute:Number(id),p_status:st,p_note:note||null,p_booking_status:st==='resolved'?c.querySelector('.bs').value:null});
+  toast('Saved');show('disputes');
+}
+
+/* ---------- PLANS, FEES & SETTINGS ---------- */
+async function plans(){
+  const[{data:pl,error:e1},{data:st,error:e2}]=await Promise.all([sb.from('employer_plans').select('*').order('id'),sb.from('platform_settings').select('*').order('key')]);
+  if(e1)throw e1;if(e2)throw e2;
+  const S=Object.fromEntries((st||[]).map(s=>[s.key,s.value]));
+  const sc=(k,l,hint)=>`<div class="card" data-k="${k}"><label>${l}</label><input class="v" type="number" min="0" step="any" value="${esc(S[k])}"><p class="mut">${hint}</p><button class="btn" data-set="${k}">Save</button></div>`;
+  $('view').innerHTML=`<h3>Employer plans</h3><p class="mut">All prices are examples until validated with customers. Tick “price confirmed” only when you have decided a real price. Worker registration and verification are always free.</p>`+
+  (pl||[]).map(p=>`<div class="card"><b>${esc(p.name)}</b> <span class="mut">(${esc(p.slug)})${p.is_example_price?' · example price':' · confirmed price'}</span>
+  <label>Name</label><input class="nm" value="${esc(p.name)}"><label>Monthly price (₦)</label><input class="pr" type="number" min="0" value="${esc(p.price_ngn)}">
+  <label>Features and limits (JSON)</label><textarea class="ft" rows="7" style="font-family:monospace;font-size:12px">${esc(JSON.stringify(p.features,null,2))}</textarea>
+  <label class="chk"><input type="checkbox" class="ac" ${p.active?'checked':''}> Plan is active</label><label class="chk"><input type="checkbox" class="cf" ${p.is_example_price?'':'checked'}> Price confirmed (not an example)</label>
+  <button class="btn" data-plan="${esc(p.id)}">Save plan</button></div>`).join('')+
+  `<h3>Fees and commission</h3><p class="mut">Charge fees only where legally and contractually permitted, and show every fee before payment.</p>`+
+  sc('commission_percent','Platform commission (%)','Applies only to integrated payments, once enabled. Zero for now.')+
+  sc('fixed_fee_ngn','Fixed transaction fee (₦)','Zero for now.')+sc('employer_service_fee_ngn','Employer service fee (₦)','Zero for now.')+
+  `<div class="card" data-k="integrated_payments_enabled"><label class="chk"><input type="checkbox" class="v" ${S.integrated_payments_enabled===true?'checked':''}> Allow payment through Verilo</label><p class="mut">Keep this OFF until a payment provider has approved Verilo and you have taken legal advice. Verilo must not hold customer funds without the required approvals.</p><button class="btn" data-set="integrated_payments_enabled">Save</button></div>
+  <div class="card" data-k="refund_rules"><label>Refund rules shown to users</label><textarea class="v" rows="4">${esc(S.refund_rules)}</textarea><button class="btn" data-set="refund_rules">Save</button></div>
+  <div class="card" data-k="default_cancellation_terms"><label>Default cancellation terms (pre-filled in new bookings)</label><textarea class="v" rows="4">${esc(S.default_cancellation_terms)}</textarea><button class="btn" data-set="default_cancellation_terms">Save</button></div>`;
+}
+async function savePlan(id,c){
+  let f;try{f=JSON.parse(c.querySelector('.ft').value)}catch(e){throw new Error('The features text is not valid JSON.')}
+  await rpc('admin_update_plan',{p_id:Number(id),p_name:c.querySelector('.nm').value,p_price:Number(c.querySelector('.pr').value),p_features:f,p_active:c.querySelector('.ac').checked,p_price_confirmed:c.querySelector('.cf').checked});
+  toast('Plan saved');plans();
+}
+async function saveSetting(k,c){
+  const el=c.querySelector('.v');let v;
+  if(k==='integrated_payments_enabled'){v=el.checked;if(v&&!confirm('Enable payment through Verilo? Only do this if a provider has approved you and you have legal advice.'))return}
+  else if(el.type==='number'){v=Number(el.value);if(Number.isNaN(v))throw new Error('Enter a number.')}
+  else v=el.value;
+  await rpc('admin_set_setting',{p_key:k,p_value:v});toast('Saved');plans();
 }
 </script></body></html>
