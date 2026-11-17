@@ -37,7 +37,7 @@ img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;backgro
 <button class="btn" id="loginBtn" style="width:100%">Log in</button></section>
 <div id="app" hidden>
 <header><b>Verilo Admin</b><small id="who"></small><button id="out">Log out</button></header>
-<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="plans">Plans &amp; fees</button></nav>
+<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="content">Content</button><button data-t="plans">Plans &amp; fees</button></nav>
 <main id="view"></main></div>
 <div id="detail" hidden></div><div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -206,4 +206,30 @@ async function saveSetting(k,c){
   else v=el.value;
   await rpc('admin_set_setting',{p_key:k,p_value:v});toast('Saved');plans();
 }
+/* ================= STAGE 10: CONTENT MODERATION ================= */
+const CRL={spam:'Spam',fake_account:'Fake account',harassment:'Harassment or abuse',private_information:'Private information',child_privacy:'Private information about a child',copyright:'Copyright complaint',inappropriate:'Inappropriate content',other:'Other'};
+const _dash=dash;
+L.dash=async()=>{await _dash();const s=await rpc('admin_social_stats');$('view').insertAdjacentHTML('beforeend','<h3>Network and jobs</h3><div class="grid">'+[['Posts',s.posts_total],['Hidden or removed posts',s.posts_hidden],['Comments',s.comments_total],['Follows',s.follows_total],['Open content reports',s.content_reports_open],['Open jobs',s.jobs_open],['Applications',s.applications_total]].map(x=>`<div class="card"><b>${esc(x[1]==null?0:x[1])}</b><span class="mut">${esc(x[0])}</span></div>`).join('')+'</div>')};
+L.content=content;
+async function content(){
+  const{data,error}=await sb.from('content_reports').select('*').in('status',['open','reviewing']).order('created_at');if(error)throw error;
+  if(!data.length){$('view').innerHTML='<div class="card">No open content reports. ✅</div>';return}
+  const pids=data.filter(r=>r.post_id).map(r=>r.post_id),cids=data.filter(r=>r.comment_id).map(r=>r.comment_id);
+  const[{data:ps},{data:cs},{data:ms}]=await Promise.all([pids.length?sb.from('posts').select('*').in('id',pids):{data:[]},cids.length?sb.from('post_comments').select('*').in('id',cids):{data:[]},pids.length?sb.from('post_media').select('*').in('post_id',pids):{data:[]}]);
+  const P=Object.fromEntries((ps||[]).map(x=>[x.id,x])),C=Object.fromEntries((cs||[]).map(x=>[x.id,x]));
+  const n=await names([...new Set([...(ps||[]).map(x=>x.author_id),...(cs||[]).map(x=>x.author_id),...data.map(r=>r.reporter_id)])]);
+  $('view').innerHTML=data.map(r=>{const it=r.post_id?P[r.post_id]:C[r.comment_id]||{};const au=(n[it.author_id]||{}).full_name||'Unknown';
+    return `<div class="card"><b>${esc(CRL[r.reason]||r.reason)}</b> <span class="badge">${esc(r.status)}</span><div class="mut">Reported by ${esc((n[r.reporter_id]||{}).full_name||'someone')} · ${esc(when(r.created_at))}</div><p>${esc(r.details||'No details')}</p>
+    <div class="card" style="background:var(--bg)"><div class="mut">${r.post_id?'Post':'Comment'} by ${esc(au)} · current status: ${esc(it.status||'')}</div><p style="white-space:pre-wrap">${esc(it.body||'(no text)')}</p>${(ms||[]).filter(m=>m.post_id===r.post_id).map(m=>`<button class="btn alt" data-pm="${esc(m.path)}">View ${esc(m.kind)}</button>`).join('')}</div>
+    <textarea rows="2" class="n" placeholder="Note for the record (required to hide or remove)"></textarea>
+    <select class="a"><option value="reviewing">Mark as reviewing</option><option value="dismiss">Dismiss report (no action)</option><option value="hide">Hide content</option><option value="remove">Remove content</option></select>
+    <button class="btn" data-cmod="${esc(r.id)}">Save decision</button><p class="mut">Check for ID documents, bank or phone numbers, private information about children, and copyright claims. The author is notified when content is removed.</p></div>`}).join('');
+}
+$('view').addEventListener('click',e=>{
+  const m=e.target.closest('[data-pm]');if(m)guard(async()=>{const{data,error}=await sb.storage.from('post-media').createSignedUrl(m.dataset.pm,60);if(error)throw error;window.open(data.signedUrl,'_blank')});
+  const c=e.target.closest('[data-cmod]');if(c)guard(async()=>{const card=c.closest('.card'),act=card.querySelector('.a').value,note=card.querySelector('.n').value.trim();
+    if(['hide','remove'].includes(act)&&!note)throw new Error('Write a note for the record first.');
+    if(act==='remove'&&!confirm('Remove this content? The author will be notified.'))return;
+    await rpc('admin_moderate_content',{p_report:Number(c.dataset.cmod),p_action:act,p_note:note||null});toast('Saved');show('content')});
+});
 </script></body></html>
