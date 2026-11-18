@@ -37,7 +37,7 @@ img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;backgro
 <button class="btn" id="loginBtn" style="width:100%">Log in</button></section>
 <div id="app" hidden>
 <header><b>Verilo Admin</b><small id="who"></small><button id="out">Log out</button></header>
-<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="content">Content</button><button data-t="plans">Plans &amp; fees</button></nav>
+<nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="content">Content</button><button data-t="deletions">Deletions</button><button data-t="plans">Plans &amp; fees</button></nav>
 <main id="view"></main></div>
 <div id="detail" hidden></div><div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -231,5 +231,32 @@ $('view').addEventListener('click',e=>{
     if(['hide','remove'].includes(act)&&!note)throw new Error('Write a note for the record first.');
     if(act==='remove'&&!confirm('Remove this content? The author will be notified.'))return;
     await rpc('admin_moderate_content',{p_report:Number(c.dataset.cmod),p_action:act,p_note:note||null});toast('Saved');show('content')});
+});
+/* ================= ACCOUNT ERASURE ================= */
+L.deletions=deletions;
+async function deletions(){
+  const d=await rpc('admin_deletion_requests');
+  $('view').innerHTML=`<div class="card"><b>How erasure works</b><p class="mut">Erased: name, phone, email, login, profile text, ID documents, posts, comments, follows and chat message text. Kept: booking, payment and dispute records, shown as “Deleted user”, because other people depend on them and financial records may have to be kept by law. Accounts with live bookings cannot be erased until those are finished or resolved. Erasing cannot be undone.</p></div>`+(d.length?'':'<div class="card">No deletion requests. ✅</div>')+d.map(u=>`<div class="card"><b>${esc(u.full_name)}</b> <span class="badge">${esc(u.role)}</span><div class="mut">${esc(u.email)} · requested ${esc(when(u.requested_at))}<br>${esc(u.live_bookings)} live booking(s) · ${esc(u.posts)} post(s)</div>${Number(u.live_bookings)>0?'<p class="mut">Live bookings must be finished or resolved before this account can be erased.</p>':''}<button class="btn red" data-erase="${esc(u.id)}" data-name="${esc(u.full_name)}">Erase account</button><button class="btn alt" data-undo="${esc(u.id)}">Restore account</button></div>`).join('');
+}
+async function wipeFolder(bucket,uid){
+  for(let i=0;i<20;i++){
+    const{data,error}=await sb.storage.from(bucket).list(uid,{limit:100});if(error)throw error;
+    if(!data||!data.length)return;
+    const{error:e2}=await sb.storage.from(bucket).remove(data.map(f=>uid+'/'+f.name));if(e2)throw e2;
+  }
+}
+$('view').addEventListener('click',e=>{
+  const x=e.target.closest('[data-erase]');
+  if(x)guard(async()=>{
+    const uid=x.dataset.erase;
+    if(!confirm('Erase the account of '+x.dataset.name+'? This cannot be undone.'))return;
+    if((prompt('Type ERASE to confirm')||'').trim()!=='ERASE')return;
+    toast('Checking…');await rpc('admin_erasure_check',{p_user:uid});
+    toast('Deleting files…');await wipeFolder('id-documents',uid);await wipeFolder('post-media',uid);
+    toast('Erasing data…');await rpc('admin_erase_account',{p_user:uid});
+    toast('Account erased');show('deletions');
+  });
+  const y=e.target.closest('[data-undo]');
+  if(y)guard(async()=>{if(!confirm('Restore this account? The person can log in again.'))return;await rpc('admin_cancel_deletion',{p_user:y.dataset.undo});toast('Account restored');show('deletions')});
 });
 </script></body></html>
