@@ -6,6 +6,7 @@
 <style>
 :root{--navy:#102A43;--teal:#00C2A8;--bg:#F3F6F9;--card:#fff;--tx:#102A43;--mut:#5b6f82;--ln:#dfe6ed;--bad:#c0392b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0b1c2c;--card:#142f47;--tx:#f3f6f9;--mut:#9fb3c6;--ln:#24435f}}
+:root[data-theme=dark]{--bg:#0b1c2c;--card:#142f47;--tx:#f3f6f9;--mut:#9fb3c6;--ln:#24435f}
 *{box-sizing:border-box}[hidden]{display:none!important}html{height:100%}
 body{margin:0;background:var(--bg);color:var(--tx);font-family:"Plus Jakarta Sans","Segoe UI",system-ui,sans-serif;line-height:1.45}
 header{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
@@ -28,6 +29,7 @@ img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;backgro
 .badge{font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;background:#e8edf2;color:#4a5d70}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:.2s;max-width:90%;z-index:9}
 #toast.show{opacity:1}#toast.bad{background:var(--bad)}
+#linkbox{position:fixed;left:12px;right:12px;bottom:70px;z-index:10;box-shadow:0 4px 18px #0004}
 #detail{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:14px;padding-top:calc(14px + env(safe-area-inset-top,0px));z-index:5}
 </style></head><body>
 <section class="login" id="login">
@@ -36,25 +38,67 @@ img.doc{width:100%;max-height:60vh;object-fit:contain;border-radius:10px;backgro
 <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
 <button class="btn" id="loginBtn" style="width:100%">Log in</button></section>
 <div id="app" hidden>
-<header><b>Verilo Admin</b><small id="who"></small><button id="out">Log out</button></header>
+<header><b>Verilo Admin</b><small id="who"></small><button id="theme" type="button">Theme</button><button id="out">Log out</button></header>
 <nav id="tabs"><button data-t="dash">Dashboard</button><button data-t="queue">Verification</button><button data-t="reports">Reports</button><button data-t="appeals">Appeals</button><button data-t="disputes">Disputes</button><button data-t="content">Content</button><button data-t="deletions">Deletions</button><button data-t="plans">Plans &amp; fees</button></nav>
 <main id="view"></main></div>
-<div id="detail" hidden></div><div id="toast"></div>
+<div id="detail" hidden></div><div id="linkbox" class="card" hidden></div><div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 const sb=supabase.createClient('https://maeraxyuwiwnlujctlzt.supabase.co','sb_publishable_gLotKP2jJGgtYaGD44bcmg_3K00b_qK');
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function toast(m,bad){const t=$('toast');t.textContent=m;t.className='show'+(bad?' bad':'');setTimeout(()=>t.className='',3500)}
+function toast(m,bad){const t=$('toast');t.textContent=m;t.className='show'+(bad?' bad':'');setTimeout(()=>t.className='',bad?7000:3500)}
 async function guard(fn){try{await fn()}catch(e){toast(e.message||String(e),true)}}
 async function rpc(name,args){const{data,error}=await sb.rpc(name,args);if(error)throw error;return data}
 const when=d=>d?new Date(d).toLocaleString('en-GB'):'';
 const ngn=n=>n==null?'—':'₦'+Number(n).toLocaleString();
 
+/* ---- theme toggle (follows phone by default) ---- */
+const TK='verilo_admin_theme',root=document.documentElement;
+function applyTheme(t){if(t)root.setAttribute('data-theme',t);else root.removeAttribute('data-theme')}
+try{applyTheme(localStorage.getItem(TK))}catch(e){}
+$('theme').onclick=()=>{
+  const cur=root.getAttribute('data-theme'),dark=cur?cur==='dark':matchMedia('(prefers-color-scheme:dark)').matches,t=dark?'light':'dark';
+  applyTheme(t);try{localStorage.setItem(TK,t)}catch(e){}
+};
+
+/* ---- idle logout after 15 minutes ---- */
+let idle;
+function arm(){clearTimeout(idle);idle=setTimeout(async()=>{await sb.auth.signOut();location.reload()},15*60*1000)}
+['click','keydown','touchstart'].forEach(ev=>addEventListener(ev,()=>{if(!$('app').hidden)arm()}));
+
+/* ---- signed file links that survive mobile popup blockers ---- */
+function showLink(u){
+  const b=$('linkbox');
+  b.innerHTML=`<a href="${esc(u)}" target="_blank" rel="noopener">Open file (link expires in 60 seconds)</a> <button class="btn alt" id="lx" type="button">Close</button>`;
+  b.hidden=false;$('lx').onclick=()=>{b.hidden=true};
+}
+function openBlank(){const w=window.open('','_blank');if(w)w.opener=null;return w}
+async function openSigned(bucket,path,w){
+  const{data,error}=await sb.storage.from(bucket).createSignedUrl(path,60);
+  if(error){if(w)w.close();throw error}
+  if(w&&!w.closed)w.location.href=data.signedUrl;else showLink(data.signedUrl);
+}
+
+/* ---- storage helpers: recursive list and batched delete ---- */
+async function listAll(bucket,prefix){
+  let out=[];
+  for(let off=0;;off+=100){
+    const{data,error}=await sb.storage.from(bucket).list(prefix,{limit:100,offset:off});if(error)throw error;
+    if(!data||!data.length)break;
+    for(const f of data){const p=prefix+'/'+f.name;if(f.id==null)out=out.concat(await listAll(bucket,p));else out.push(p)}
+    if(data.length<100)break;
+  }
+  return out;
+}
+async function removeAll(bucket,paths){
+  for(let i=0;i<paths.length;i+=100){const{error}=await sb.storage.from(bucket).remove(paths.slice(i,i+100));if(error)throw error}
+}
+
 async function enter(user){
   const{data:p,error}=await sb.from('profiles').select('role,full_name,status').eq('id',user.id).single();
   if(error||!p||p.role!=='admin'||p.status!=='active'){await sb.auth.signOut();throw new Error('This account is not an admin account.')}
-  $('login').hidden=true;$('app').hidden=false;$('who').textContent=p.full_name;show('dash');
+  $('login').hidden=true;$('app').hidden=false;$('who').textContent=p.full_name;arm();show('dash');
 }
 $('loginBtn').onclick=()=>guard(async()=>{
   const{data,error}=await sb.auth.signInWithPassword({email:$('em').value.trim(),password:$('pw').value});
@@ -64,7 +108,7 @@ $('out').onclick=async()=>{await sb.auth.signOut();location.reload()};
 sb.auth.getSession().then(({data})=>{if(data.session)guard(()=>enter(data.session.user))});
 
 const L={dash,queue,reports,appeals,disputes,plans};let cur='dash';
-function show(t){cur=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$('view').innerHTML='<p class="mut">Loading…</p>';guard(L[t])}
+function show(t){cur=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$('view').innerHTML='<p class="mut">Loading…</p>';$('linkbox').hidden=true;guard(L[t])}
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(b)show(b.dataset.t)};
 
 async function dash(){
@@ -144,7 +188,7 @@ async function saveAppeal(id,o,c){
 
 /* ---------- DISPUTES ---------- */
 const PSL={reported_paid:'Reported as paid (not verified by Verilo)',receipt_confirmed:'Receipt confirmed by worker',disputed:'Payment disputed',refunded:'Refunded'};
-async function viewEv(p){const{data,error}=await sb.storage.from('payment-evidence').createSignedUrl(p,60);if(error)throw error;window.open(data.signedUrl,'_blank')}
+async function viewEv(p){const w=openBlank();await openSigned('payment-evidence',p,w)}
 async function disputes(){
   const{data,error}=await sb.from('booking_disputes').select('*').in('status',['open','under_review']).order('created_at');if(error)throw error;
   if(!data.length){$('view').innerHTML='<div class="card">No open disputes.</div>';return}
@@ -226,7 +270,7 @@ async function content(){
     <button class="btn" data-cmod="${esc(r.id)}">Save decision</button><p class="mut">Check for ID documents, bank or phone numbers, private information about children, and copyright claims. The author is notified when content is removed.</p></div>`}).join('');
 }
 $('view').addEventListener('click',e=>{
-  const m=e.target.closest('[data-pm]');if(m)guard(async()=>{const{data,error}=await sb.storage.from('post-media').createSignedUrl(m.dataset.pm,60);if(error)throw error;window.open(data.signedUrl,'_blank')});
+  const m=e.target.closest('[data-pm]');if(m)guard(async()=>{const w=openBlank();await openSigned('post-media',m.dataset.pm,w)});
   const c=e.target.closest('[data-cmod]');if(c)guard(async()=>{const card=c.closest('.card'),act=card.querySelector('.a').value,note=card.querySelector('.n').value.trim();
     if(['hide','remove'].includes(act)&&!note)throw new Error('Write a note for the record first.');
     if(act==='remove'&&!confirm('Remove this content? The author will be notified.'))return;
@@ -236,14 +280,8 @@ $('view').addEventListener('click',e=>{
 L.deletions=deletions;
 async function deletions(){
   const d=await rpc('admin_deletion_requests');
-  $('view').innerHTML=`<div class="card"><b>How erasure works</b><p class="mut">Erased: name, phone, email, login, profile text, ID documents, posts, comments, follows and chat message text. Kept: booking, payment and dispute records, shown as “Deleted user”, because other people depend on them and financial records may have to be kept by law. Accounts with live bookings cannot be erased until those are finished or resolved. Erasing cannot be undone.</p></div>`+(d.length?'':'<div class="card">No deletion requests. ✅</div>')+d.map(u=>`<div class="card"><b>${esc(u.full_name)}</b> <span class="badge">${esc(u.role)}</span><div class="mut">${esc(u.email)} · requested ${esc(when(u.requested_at))}<br>${esc(u.live_bookings)} live booking(s) · ${esc(u.posts)} post(s)</div>${Number(u.live_bookings)>0?'<p class="mut">Live bookings must be finished or resolved before this account can be erased.</p>':''}<button class="btn red" data-erase="${esc(u.id)}" data-name="${esc(u.full_name)}">Erase account</button><button class="btn alt" data-undo="${esc(u.id)}">Restore account</button></div>`).join('');
-}
-async function wipeFolder(bucket,uid){
-  for(let i=0;i<20;i++){
-    const{data,error}=await sb.storage.from(bucket).list(uid,{limit:100});if(error)throw error;
-    if(!data||!data.length)return;
-    const{error:e2}=await sb.storage.from(bucket).remove(data.map(f=>uid+'/'+f.name));if(e2)throw e2;
-  }
+  $('view').innerHTML=`<div class="card"><b>How erasure works</b><p class="mut">Erased: name, phone, email, login, profile text, ID documents, posts, comments, follows and chat message text. Kept: booking, payment and dispute records, shown as “Deleted user”, because other people depend on them and financial records may have to be kept by law. Accounts with live bookings cannot be erased until those are finished or resolved. Erasing cannot be undone.</p></div>`+(d.length?'':'<div class="card">No deletion requests. ✅</div>')+d.map(u=>`<div class="card"><b>${esc(u.full_name)}</b> <span class="badge">${esc(u.role)}</span><div class="mut">${esc(u.email)} · requested ${esc(when(u.requested_at))}<br>${esc(u.live_bookings)} live booking(s) · ${esc(u.posts)} post(s)<br>User ID: ${esc(u.id)}</div>${Number(u.live_bookings)>0?'<p class="mut">Live bookings must be finished or resolved before this account can be erased.</p>':''}<button class="btn red" data-erase="${esc(u.id)}" data-name="${esc(u.full_name)}">Erase account</button><button class="btn alt" data-undo="${esc(u.id)}">Restore account</button></div>`).join('')+
+  `<div class="card"><b>Clean up leftover files</b><p class="mut">Use only if an erasure said some files remain. Deletes every file stored under that user ID.</p><input id="cleanuid" placeholder="User ID (from the erasure message)"><button class="btn alt" data-clean="1">Clean up files</button></div>`;
 }
 $('view').addEventListener('click',e=>{
   const x=e.target.closest('[data-erase]');
@@ -252,9 +290,19 @@ $('view').addEventListener('click',e=>{
     if(!confirm('Erase the account of '+x.dataset.name+'? This cannot be undone.'))return;
     if((prompt('Type ERASE to confirm')||'').trim()!=='ERASE')return;
     toast('Checking…');await rpc('admin_erasure_check',{p_user:uid});
-    toast('Deleting files…');await wipeFolder('id-documents',uid);await wipeFolder('post-media',uid);
+    toast('Listing files…');
+    const files=[['id-documents',await listAll('id-documents',uid)],['post-media',await listAll('post-media',uid)]];
     toast('Erasing data…');await rpc('admin_erase_account',{p_user:uid});
+    try{for(const[b,p]of files)await removeAll(b,p)}
+    catch(err){toast('Data erased, but some files remain. Use “Clean up leftover files” with user ID '+uid,true);show('deletions');return}
     toast('Account erased');show('deletions');
+  });
+  const z=e.target.closest('[data-clean]');
+  if(z)guard(async()=>{
+    const uid=$('cleanuid').value.trim();
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid))throw new Error('Enter a valid user ID.');
+    for(const b of['id-documents','post-media'])await removeAll(b,await listAll(b,uid));
+    toast('Files cleaned up');
   });
   const y=e.target.closest('[data-undo]');
   if(y)guard(async()=>{if(!confirm('Restore this account? The person can log in again.'))return;await rpc('admin_cancel_deletion',{p_user:y.dataset.undo});toast('Account restored');show('deletions')});
